@@ -1,0 +1,87 @@
+import os
+import sys
+import requests
+from google import genai
+
+def analyze_error_with_ai(tool_name, log_content):
+    """Sends the logs to the Gemini API and returns an analysis and fix suggestion."""
+    # Connect to the API using the new official Client
+    client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+    
+    # Prompt engineering that defines the agent's role based on the failed tool
+    prompt = f"""
+    You are an autonomous Senior DevSecOps & SRE Expert Agent.
+    A CI/CD pipeline step failed for the tool: '{tool_name}' in a Java/Docker project.
+    
+    Analyze the following error or output log, and provide a professional, structured markdown report with:
+    1. 🎯 **Root Cause**: Briefly explain what broke or what vulnerability was found.
+    2. 🛠️ **Exact Fix**: Provide the exact code, dependency update, configuration change, or Dockerfile adjustment needed to fix it.
+    
+    Here is the log snippet/output:
+    {log_content}
+    """
+    
+    print(f"🤖 Agent is communicating with Gemini for tool: {tool_name}...")
+    response = client.models.generate_content(
+        model='gemini-2.5-flash',
+        contents=prompt,
+    )
+    return response.text
+
+def post_comment_to_pr(comment_body):
+    """Posts the agent's report as a comment directly inside the Pull Request using the GitHub API."""
+    repo = os.environ.get("GITHUB_REPOSITORY")      # Format: username/repo
+    pr_number = os.environ.get("PR_NUMBER")         # PR number passed from the pipeline
+    token = os.environ.get("GITHUB_TOKEN")
+    
+    if not pr_number or pr_number == "false" or not token:
+        print("⚠️ Not a Pull Request or GITHUB_TOKEN missing. Skipping PR comment.")
+        return
+
+    url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    payload = {"body": comment_body}
+    
+    response = requests.post(url, json=payload, headers=headers)
+    if response.status_code == 201:
+        print("✅ Successfully posted analysis report to Pull Request comments!")
+    else:
+        print(f"❌ Failed to post comment. Status code: {response.status_code}, Response: {response.text}")
+
+if __name__ == "__main__":
+    if len(sys.argv) < 3:
+        print("Usage: python pipeline_agent.py <tool_name> <log_file_path>")
+        sys.exit(1)
+        
+    failed_tool = sys.argv[1]
+    log_path = sys.argv[2]
+    
+    if not os.path.exists(log_path):
+        print(f"❌ Log file {log_path} not found.")
+        sys.exit(1)
+        
+    with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
+        full_log = f.read()
+        
+    # Take only the last 150 lines (where errors usually are) to avoid overloading the context
+    log_lines = full_log.splitlines()
+    truncated_log = "\n".join(log_lines[-150:])
+    
+    # Run the analysis
+    ai_report = analyze_error_with_ai(failed_tool, truncated_log)
+    
+    # Construct a formatted Markdown message
+    final_message = f"### 🤖 CI/CD Autonomous Agent Report\n" \
+                    f"⚠️ **Pipeline failed at step:** `{failed_tool}`\n\n" \
+                    f"{ai_report}\n\n" \
+                    f"--- \n*Generated automatically by Citadel Autonomous DevOps Agent.*"
+    
+    # Save the report locally as an artifact
+    with open("ai_agent_report.md", "w", encoding="utf-8") as out:
+        out.write(final_message)
+        
+    # Automatically send to GitHub PR (if applicable)
+    post_comment_to_pr(final_message)

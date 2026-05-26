@@ -30,6 +30,17 @@ jobs:
 
     - name: Run Tests with Maven
       # run: mvn test -P ci  # Command to execute the JUnit tests with a specific profile (if needed)
-      run: mvn test  # Command to execute the JUnit tests
+      run: mvn test | tee maven_output.log  # Command to execute the JUnit tests and save the output to a log file
       env:
         DB_HOST: localhost  # Tells the application that MongoDB is running on the local host of the runner
+
+    # Capture the test output in a log file for potential use by the AI agent
+    - name: Run Autonomous AI Agent on Failure
+      if: failure()
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        PR_NUMBER: ${{ github.event.pull_request.number || 'false' }}
+      run: |
+        pip install google-genai requests
+        python scripts/pipeline_agent.py "Maven JUnit Tests" maven_output.log
