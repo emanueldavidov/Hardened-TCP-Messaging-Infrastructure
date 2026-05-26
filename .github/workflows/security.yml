@@ -27,15 +27,15 @@ jobs:
       - name: Run Semgrep (SAST for Injections)
         if: always()
         id: semgrep_scan
+        continue-on-error: true # CRITICAL: Allows pipeline to move to the AI step even if vulnerabilities are found
         run: |
-          # set -o pipefail ensures that if semgrep fails, the exit code is caught despite using 'tee'
           set -o pipefail
           pip install semgrep
-          semgrep scan --config auto --error | tee semgrep_output.log
+          semgrep scan --config auto --error 2>&1 | tee semgrep_output.log
 
       # AI Agent trigger specifically for Semgrep SAST failures
       - name: AI Agent - Analyze Semgrep Failure
-        if: failure() && steps.semgrep_scan.outcome == 'failure'
+        if: always() && steps.semgrep_scan.outcome == 'failure' # Triggers if semgrep caught vulnerabilities
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -44,7 +44,11 @@ jobs:
           pip install google-genai requests
           if [ -f semgrep_output.log ]; then
             python scripts/pipeline_agent.py "Semgrep SAST Scan" semgrep_output.log
+            echo "=================== AI AGENT REPORT ==================="
+            cat ai_agent_report.md
+            echo "======================================================="
           fi
+          exit 1 # Intentionally fail the job at the very end so you know there's a bug
 
       # Step 3: Software Composition Analysis (SCA) using Snyk for third-party dependencies
       - name: Run Snyk to check vulnerabilities in POM
@@ -61,6 +65,7 @@ jobs:
       - name: Run Trivy (Container Scanning)
         id: trivy_scan
         if: always()
+        continue-on-error: true # CRITICAL: Allows pipeline to move to the AI step even if vulnerabilities are found
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'chat-server:latest'
@@ -71,7 +76,7 @@ jobs:
 
       # AI Agent trigger specifically for Trivy image vulnerability failures
       - name: AI Agent - Analyze Trivy Security Flaws
-        if: failure() && steps.trivy_scan.outcome == 'failure'
+        if: always() && steps.trivy_scan.outcome == 'failure'
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -80,4 +85,8 @@ jobs:
           pip install google-genai requests
           if [ -f trivy_output.log ]; then
             python scripts/pipeline_agent.py "Trivy Container Scanner" trivy_output.log
+            echo "=================== AI AGENT REPORT ==================="
+            cat ai_agent_report.md
+            echo "======================================================="
           fi
+          exit 1 # Intentionally fail the job at the very end so you know there's a bug
