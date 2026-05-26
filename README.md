@@ -87,3 +87,9 @@ mvn exec:java -Dexec.mainClass="LoadTester"
 
 ### 3. Open Grafana (http://localhost:3000)
 to evaluate user load charts, operational memory footprints, and socket processing behaviors under heavy connection pressures.
+
+### 4. Agentic DevOps & Autonomous Self-Healing (AIOps)
+The infrastructure is supercharged with autonomous Python AI agents powered by the **Google Gemini API** to completely remove manual friction during runtime failures and deployment security vulnerabilities:
+
+* **The Self-Healing CI/CD Agent (Deployment Phase):** Built directly into the `security.yml` pipeline framework. If a security gate fails (e.g., Semgrep detects a Kubernetes misconfiguration), a specialized Python step intercepts the raw error log, evaluates the root cause via structured Pydantic schemas, modifies the broken code locally, pushes a branch, and opens an automated **GitHub Pull Request** with the exact security remediation blueprint.
+* **The Autonomous Cluster AI SRE Agent (Runtime Phase):** A multi-turn event analyzer designed as a virtual Site Reliability Engineer. The agent hosts a localized Flask listener endpoint. When system alerts occur in the cluster, it leverages advanced **AI Function Calling** to dynamically run localized diagnostics (`kubectl logs` and `kubectl describe`), safely ingesting and parsing live cluster states to deliver precise engineering incident reports.
