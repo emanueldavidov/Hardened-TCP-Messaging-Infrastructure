@@ -43,7 +43,7 @@ jobs:
         run: |
           pip install google-genai requests
           if [ -f semgrep_output.log ]; then
-            python ./scripts/pipeline_agent.py "Semgrep SAST Scan" semgrep_output.log
+            python "${{ github.workspace }}/scripts/pipeline_agent.py" "Semgrep SAST Scan" semgrep_output.log
             echo "=================== AI AGENT REPORT ==================="
             cat ai_agent_report.md
             echo "======================================================="
@@ -84,7 +84,7 @@ jobs:
         run: |
           pip install google-genai requests
           if [ -f trivy_output.log ]; then
-            python scripts/pipeline_agent.py "Trivy Container Scanner" trivy_output.log
+            python "${{ github.workspace }}/scripts/pipeline_agent.py" "Trivy Container Scanner" trivy_output.log
             echo "=================== AI AGENT REPORT ==================="
             cat ai_agent_report.md
             echo "======================================================="

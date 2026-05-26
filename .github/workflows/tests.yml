@@ -46,7 +46,7 @@ jobs:
         PR_NUMBER: ${{ github.event.pull_request.number || 'false' }}
       run: |
         pip install google-genai requests
-        python ./scripts/pipeline_agent.py "Maven JUnit Tests" maven_output.log
+        python "${{ github.workspace }}/scripts/pipeline_agent.py" "Maven JUnit Tests" maven_output.log
         echo "=================== AI AGENT REPORT ==================="
         cat ai_agent_report.md
         echo "======================================================="
