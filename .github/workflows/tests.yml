@@ -46,8 +46,18 @@ jobs:
         PR_NUMBER: ${{ github.event.pull_request.number || 'false' }}
       run: |
         pip install google-genai requests
-        python "${{ github.workspace }}/scripts/pipeline_agent.py" "Maven JUnit Tests" maven_output.log
-        echo "=================== AI AGENT REPORT ==================="
-        cat ai_agent_report.md
-        echo "======================================================="
-        exit 1 # Intentionally fail the job at the very end so you know tests failed
+          
+          # Debug step to see exactly where we are and find the script file
+          echo "=== Debugging file paths ==="
+          pwd
+          find . -name "pipeline_agent.py"
+          echo "============================"
+          
+          if [ -f maven_output.log ]; then
+            # Running python directly using a localized sub-shell finding tool
+            python $(find . -name "pipeline_agent.py" | head -n 1) "Maven JUnit Tests" maven_output.log
+            echo "=================== AI AGENT REPORT ==================="
+            cat ai_agent_report.md
+            echo "======================================================="
+          fi
+          exit 1 # Intentionally fail the job at the very end so you know there's a bug
