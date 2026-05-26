@@ -43,7 +43,7 @@ jobs:
         run: |
           pip install google-genai requests
           if [ -f semgrep_output.log ]; then
-            python scripts/pipeline_agent.py "Semgrep SAST Scan" semgrep_output.log
+            python ./scripts/pipeline_agent.py "Semgrep SAST Scan" semgrep_output.log
             echo "=================== AI AGENT REPORT ==================="
             cat ai_agent_report.md
             echo "======================================================="
