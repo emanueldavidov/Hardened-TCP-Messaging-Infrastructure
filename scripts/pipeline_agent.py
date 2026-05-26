@@ -119,7 +119,7 @@ if __name__ == "__main__":
         
         # Write report to markdown file just for artifact logging visibility
         report_md = f"### 🤖 CI/CD Autonomous Agent Report\n\n{fix_result.get('root_cause')}"
-        with open("ai_agent_report.md", "w", encoding="utgit push origin mainf-8") as out:
+        with open("ai_agent_report.md", "w", encoding="utf-8") as out:
             out.write(report_md)
             
         apply_fix_and_push(tool, fix_result)
