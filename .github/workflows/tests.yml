@@ -47,15 +47,39 @@ jobs:
       run: |
         pip install google-genai requests
           
-          # Debug step to see exactly where we are and find the script file
-          echo "=== Debugging file paths ==="
-          pwd
-          find . -name "pipeline_agent.py"
-          echo "============================"
-          
           if [ -f maven_output.log ]; then
-            # Running python directly using a localized sub-shell finding tool
-            python $(find . -name "pipeline_agent.py" | head -n 1) "Maven JUnit Tests" maven_output.log
+            python -c "
+            import os, sys
+            from google import genai
+            
+            tool_name = 'Maven Unit Tests'
+            log_path = 'maven_output.log'
+            
+            with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
+                full_log = f.read()
+            truncated_log = '\n'.join(full_log.splitlines()[-150:])
+            
+            client = genai.Client(api_key=os.environ.get('GEMINI_API_KEY'))
+            prompt = f'''
+            You are an autonomous Senior DevSecOps & SRE Expert Agent.
+            A CI/CD pipeline step failed for the tool: \'{tool_name}\' in a Java/Docker project.
+            
+            Analyze the following error or output log, and provide a professional, structured markdown report with:
+            1. 🎯 **Root Cause**: Briefly explain what broke or what vulnerability was found.
+            2. 🛠️ **Exact Fix**: Provide the exact code, dependency update, configuration change, or Dockerfile adjustment needed to fix it.
+            
+            Here is the log snippet/output:
+            {truncated_log}
+            '''
+            
+            print('🤖 Agent is communicating with Gemini for tool: ' + tool_name + '...')
+            response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+            
+            final_report = f'### 🤖 CI/CD Autonomous Agent Report\n⚠️ **Pipeline failed at step:** `{tool_name}`\n\n' + response.text + '\n\n--- \n*Generated automatically by Citadel Autonomous DevOps Agent.*'
+            
+            with open('ai_agent_report.md', 'w', encoding='utf-8') as out:
+                out.write(final_report)
+            "
             echo "=================== AI AGENT REPORT ==================="
             cat ai_agent_report.md
             echo "======================================================="
