@@ -49,17 +49,21 @@ jobs:
         python -c "
         import os
         from google import genai
-        with open('maven_output.log', 'r', encoding='utf-8', errors='ignore') as f:
-            full_log = f.read()
-        truncated_log = '\n'.join(full_log.splitlines()[-150:])
-        client = genai.Client(api_key=os.environ.get('GEMINI_API_KEY'))
-        prompt = f'You are an autonomous Senior SRE Expert Agent. A pipeline step failed for Maven JUnit Tests. Analyze this log and provide a Root Cause and Exact Fix:\n\n{truncated_log}'
-        response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-        final_report = f'### 🤖 CI/CD Autonomous Agent Report\n⚠️ **Pipeline failed at step:** `Maven JUnit Tests`\n\n' + response.text + '\n\n--- \n*Generated automatically by Citadel Autonomous DevOps Agent.*'
+        try:
+            with open('maven_output.log', 'r', encoding='utf-8', errors='ignore') as f:
+                full_log = f.read()
+            truncated_log = '\n'.join(full_log.splitlines()[-150:])
+            client = genai.Client(api_key=os.environ.get('GEMINI_API_KEY'))
+            prompt = f'You are an autonomous Senior SRE Expert Agent. A pipeline step failed for Maven JUnit Tests. Analyze this log and provide a Root Cause and Exact Fix:\n\n{truncated_log}'
+            response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+            final_report = f'### 🤖 CI/CD Autonomous Agent Report\n⚠️ **Pipeline failed at step:** `Maven JUnit Tests`\n\n' + response.text + '\n\n--- \n*Generated automatically by Citadel Autonomous DevOps Agent.*'
+        except Exception as e:
+            final_report = f'### 🤖 CI/CD Autonomous Agent Report\n⚠️ AI Agent failed to fetch remote recommendations due to API limits or a 503 Service Overload.\nInternal Trace: {str(e)}'
+      
         with open('ai_agent_report.md', 'w', encoding='utf-8') as out:
-          out.write(final_report)
-        "
-        echo "=================== AI AGENT REPORT ==================="
-        cat ai_agent_report.md
-        echo "======================================================="
-        exit 1 # Intentionally fail the job at the very end so you know tests failed
+            out.write(final_report)
+          "
+          echo "=================== AI AGENT REPORT ==================="
+          cat ai_agent_report.md
+          echo "======================================================="
+          exit 1 # Intentionally fail the job at the very end so you know tests failed
