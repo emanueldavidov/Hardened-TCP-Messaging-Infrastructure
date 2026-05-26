@@ -1,0 +1,85 @@
+name: DevSecOps Security Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  security_scans:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Step 1: Secret Scanning to detect hardcoded credentials
+      - name: Run Gitleaks (Secret Scanning)
+        if: always()
+        id: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Step 2: Static Application Security Testing (SAST) using Semgrep
+      - name: Run Semgrep (SAST for Injections)
+        if: always()
+        id: semgrep_scan
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          pip install semgrep
+          semgrep scan --config auto --error 2>&1 | tee semgrep_output.log
+
+      # AI Agent trigger specifically for Semgrep SAST failures
+      - name: AI Agent - Analyze and Automate Semgrep Fix
+        if: always() && steps.semgrep_scan.outcome == 'failure'
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          pip install google-genai requests pydantic
+          if [ -f semgrep_output.log ]; then
+            python scripts/pipeline_agent.py "Semgrep SAST Scan" semgrep_output.log
+          fi
+          exit 1
+
+      # Step 3: Software Composition Analysis (SCA) using Snyk for third-party dependencies
+      - name: Run Snyk to check vulnerabilities in POM
+        if: always()
+        uses: snyk/actions/maven@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+
+      # Step 4: Container Security (Build & Scan Docker Image)
+      - name: Build Docker Image
+        if: always()
+        run: docker build -t chat-server:latest .
+
+      - name: Run Trivy (Container Scanning)
+        id: trivy_scan
+        if: always()
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'chat-server:latest'
+          format: 'table'
+          output: 'trivy_output.log'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+
+      # AI Agent trigger specifically for Trivy image vulnerability failures
+      - name: AI Agent - Analyze and Automate Trivy Fix
+        if: always() && steps.trivy_scan.outcome == 'failure'
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          pip install google-genai requests pydantic
+          if [ -f trivy_output.log ]; then
+            python scripts/pipeline_agent.py "Trivy Container Scanner" trivy_output.log
+          fi
+          exit 1
