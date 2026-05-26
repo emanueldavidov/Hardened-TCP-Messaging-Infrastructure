@@ -17,7 +17,7 @@ jobs:
 
       # Step 1: Secret Scanning to detect hardcoded credentials
       - name: Run Gitleaks (Secret Scanning)
-        if: always() # Ensures all security tools run even if previous ones failed
+        if: always()
         id: gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:
@@ -27,56 +27,24 @@ jobs:
       - name: Run Semgrep (SAST for Injections)
         if: always()
         id: semgrep_scan
-        continue-on-error: true # CRITICAL: Allows pipeline to move to the AI step even if vulnerabilities are found
+        continue-on-error: true
         run: |
           set -o pipefail
           pip install semgrep
-          # Using 'tee' ensures logs print to the screen AND save to the file simultaneously
           semgrep scan --config auto --error 2>&1 | tee semgrep_output.log
 
       # AI Agent trigger specifically for Semgrep SAST failures
-      - name: AI Agent - Analyze Semgrep Failure
+      - name: AI Agent - Analyze and Automate Semgrep Fix
         if: always() && steps.semgrep_scan.outcome == 'failure'
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number || 'false' }}
         run: |
-          pip install google-genai requests
-          
+          pip install google-genai requests pydantic
           if [ -f semgrep_output.log ]; then
-            python -c "
-          import os, time
-          from google import genai
-          
-          try:
-              with open('semgrep_output.log', 'r', encoding='utf-8', errors='ignore') as f:
-                  full_log = f.read()
-              truncated_log = '\n'.join(full_log.splitlines()[-150:])
-              
-              client = genai.Client(api_key=os.environ.get('GEMINI_API_KEY'))
-              prompt = 'You are an autonomous Senior DevSecOps Expert Agent. A pipeline step failed for Semgrep SAST Scan. Analyze this log output and provide a clear Root Cause explanation along with the Exact Code Fix:\n\n' + truncated_log
-              
-              for attempt in range(3):
-                  try:
-                      response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-                      break
-                  except Exception as api_err:
-                      if attempt == 2: raise api_err
-                      time.sleep(5)
-                      
-              final_report = '### 🤖 CI/CD Autonomous Agent Report\n⚠️ **Pipeline failed at step:** `Semgrep SAST Scan`\n\n' + response.text + '\n\n--- \n*Generated automatically by Citadel Autonomous DevOps Agent.*'
-          except Exception as e:
-              final_report = '### 🤖 CI/CD Autonomous Agent Report\n⚠️ AI Agent failed to reach the Gemini API.\nTrace: ' + str(e)
-          
-          with open('ai_agent_report.md', 'w', encoding='utf-8') as out:
-              out.write(final_report)
-            "
-            echo "=================== AI AGENT REPORT ==================="
-            cat ai_agent_report.md
-            echo "======================================================="
+            python scripts/pipeline_agent.py "Semgrep SAST Scan" semgrep_output.log
           fi
-          exit 1 # Intentionally fail the job at the very end so you know there's a bug
+          exit 1
 
       # Step 3: Software Composition Analysis (SCA) using Snyk for third-party dependencies
       - name: Run Snyk to check vulnerabilities in POM
@@ -93,54 +61,24 @@ jobs:
       - name: Run Trivy (Container Scanning)
         id: trivy_scan
         if: always()
-        continue-on-error: true # CRITICAL: Allows pipeline to move to the AI step even if vulnerabilities are found
+        continue-on-error: true
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'chat-server:latest'
           format: 'table'
-          output: 'trivy_output.log' # Saves vulnerability findings to a log file for the AI Agent
-          exit-code: '1' # Forces the pipeline step to fail if critical/high vulnerabilities are found
+          output: 'trivy_output.log'
+          exit-code: '1'
           severity: 'CRITICAL,HIGH'
 
       # AI Agent trigger specifically for Trivy image vulnerability failures
-      - name: AI Agent - Analyze Trivy Security Flaws
+      - name: AI Agent - Analyze and Automate Trivy Fix
         if: always() && steps.trivy_scan.outcome == 'failure'
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number || 'false' }}
         run: |
-          pip install google-genai requests
+          pip install google-genai requests pydantic
           if [ -f trivy_output.log ]; then
-            python -c "
-          import os, time
-          from google import genai
-          
-          try:
-              with open('trivy_output.log', 'r', encoding='utf-8', errors='ignore') as f:
-                  full_log = f.read()
-              truncated_log = '\n'.join(full_log.splitlines()[-150:])
-              
-              client = genai.Client(api_key=os.environ.get('GEMINI_API_KEY'))
-              prompt = 'You are an autonomous Senior DevSecOps Expert Agent. A pipeline step failed for Trivy Container Scanner. Analyze this log output and provide a clear Root Cause explanation along with the Exact Code Fix:\n\n' + truncated_log
-              
-              for attempt in range(3):
-                  try:
-                      response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-                      break
-                  except Exception as api_err:
-                      if attempt == 2: raise api_err
-                      time.sleep(5)
-                      
-              final_report = '### 🤖 CI/CD Autonomous Agent Report\n⚠️ **Pipeline failed at step:** `Trivy Container Scanner`\n\n' + response.text + '\n\n--- \n*Generated automatically by Citadel Autonomous DevOps Agent.*'
-          except Exception as e:
-              final_report = '### 🤖 CI/CD Autonomous Agent Report\n⚠️ AI Agent failed to reach the Gemini API.\nTrace: ' + str(e)
-          
-          with open('ai_agent_report.md', 'w', encoding='utf-8') as out:
-              out.write(final_report)
-            "
-            echo "=================== AI AGENT REPORT ==================="
-            cat ai_agent_report.md
-            echo "======================================================="
+            python scripts/pipeline_agent.py "Trivy Container Scanner" trivy_output.log
           fi
-          exit 1 # Intentionally fail the job at the very end so you know there's a bug
+          exit 1
