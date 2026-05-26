@@ -2,15 +2,14 @@ name: Java CI with MongoDB
 
 on:
   push:
-    branches: [ "main" ]  # The workflow will run every time you push to the main branch
+    branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest  # The runner environment for the job
+    runs-on: ubuntu-latest
 
-    # Defining a service container to run MongoDB for the tests
     services:
       mongodb:
         image: mongo:latest
@@ -19,7 +18,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4  # Clones your repository onto the virtual machine
+      uses: actions/checkout@v4
 
     - name: Set up JDK 21
       uses: actions/setup-java@v4
@@ -29,7 +28,21 @@ jobs:
         cache: maven
 
     - name: Run Tests with Maven
-      # run: mvn test -P ci  # Command to execute the JUnit tests with a specific profile (if needed)
-      run: mvn test  # Command to execute the JUnit tests
+      id: maven_tests
+      continue-on-error: true
+      run: |
+        set -o pipefail
+        mvn test 2>&1 | tee maven_output.log
       env:
-        DB_HOST: localhost  # Tells the application that MongoDB is running on the local host of the runner
+        DB_HOST: localhost
+
+    # Capture the test output in a log file for use by the AI agent
+    - name: Run Autonomous AI Agent on Failure
+      if: always() && steps.maven_tests.outcome == 'failure'
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        pip install google-genai requests pydantic
+        python scripts/pipeline_agent.py "Maven JUnit Tests" maven_output.log
+        exit 1
