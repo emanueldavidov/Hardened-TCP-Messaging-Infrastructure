@@ -5,17 +5,10 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
-  workflow_dispatch:
-
+  
 jobs:
   security_scans:
     runs-on: ubuntu-latest
-    
-    # --- הרשאות קריטיות שמונעות את חסימת הריצה ב-Queue ---
-    permissions:
-      contents: write      # מאפשר לסוכן לדחוף בראנץ' חדש (git push)
-      pull-requests: write # מאפשר לסוכן להריץ את פקודת gh pr create
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
