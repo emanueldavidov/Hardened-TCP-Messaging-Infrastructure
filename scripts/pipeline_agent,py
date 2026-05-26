@@ -1,55 +1,102 @@
 import os
 import sys
+import json
+import time
 import requests
+import subprocess
 from google import genai
+from pydantic import BaseModel
 
-def analyze_error_with_ai(tool_name, log_content):
-    """Sends the logs to the Gemini API and returns an analysis and fix suggestion."""
-    # Connect to the API using the new official Client
+# 1. Define the structural schema we expect back from Gemini
+class AutomatedFix(BaseModel):
+    root_cause: str
+    file_to_fix: str
+    fixed_content: str
+
+def analyze_and_get_fix(tool_name, log_content):
+    """Communicates with Gemini API to get a structured JSON response containing the fix."""
     client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
     
-    # Prompt engineering that defines the agent's role based on the failed tool
     prompt = f"""
     You are an autonomous Senior DevSecOps & SRE Expert Agent.
     A CI/CD pipeline step failed for the tool: '{tool_name}' in a Java/Docker project.
     
-    Analyze the following error or output log, and provide a professional, structured markdown report with:
-    1. 🎯 **Root Cause**: Briefly explain what broke or what vulnerability was found.
-    2. 🛠️ **Exact Fix**: Provide the exact code, dependency update, configuration change, or Dockerfile adjustment needed to fix it.
-    
+    Analyze the following error or output log. You must identify exactly which single configuration file, 
+    source code file, or manifest broke or contains a vulnerability. 
+    Provide your response in the requested JSON schema containing the root cause description, the relative path 
+    to the target file, and the entire new corrected content of that file.
+
     Here is the log snippet/output:
     {log_content}
     """
     
-    print(f"🤖 Agent is communicating with Gemini for tool: {tool_name}...")
-    response = client.models.generate_content(
-        model='gemini-2.5-flash',
-        contents=prompt,
-    )
-    return response.text
-
-def post_comment_to_pr(comment_body):
-    """Posts the agent's report as a comment directly inside the Pull Request using the GitHub API."""
-    repo = os.environ.get("GITHUB_REPOSITORY")      # Format: username/repo
-    pr_number = os.environ.get("PR_NUMBER")         # PR number passed from the pipeline
-    token = os.environ.get("GITHUB_TOKEN")
+    print(f"🤖 Agent is communicating with Gemini (Structured Mode) for tool: {tool_name}...")
     
-    if not pr_number or pr_number == "false" or not token:
-        print("⚠️ Not a Pull Request or GITHUB_TOKEN missing. Skipping PR comment.")
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=prompt,
+                config={
+                    'response_mime_type': 'application/json',
+                    'response_schema': AutomatedFix,
+                }
+            )
+            # Parse the JSON string into a Python dictionary
+            return json.loads(response.text)
+        except Exception as e:
+            if "503" in str(e) and attempt < max_retries - 1:
+                print(f"⚠️ Gemini API temporary overload (503). Retrying in 5 seconds... ({attempt + 1}/{max_retries})")
+                time.sleep(5)
+                continue
+            else:
+                raise e
+
+def apply_fix_and_push(fix_data):
+    """Applies the code modification locally, creates a new Git branch, pushes it, and opens a PR."""
+    file_path = fix_data["file_to_fix"]
+    new_content = fix_data["fixed_content"]
+    root_cause_desc = fix_data["root_cause"]
+    
+    # 1. Write the correction to the target file
+    if file_path and os.path.exists(file_path):
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write(new_content)
+        print(f"🛠️ Applied AI automated fix locally to: {file_path}")
+    else:
+        print(f"❌ Target file '{file_path}' not found or path empty. Skipping automation.")
         return
 
-    url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
-    headers = {
-        "Authorization": f"token {token}",
-        "Accept": "application/vnd.github.v3+json"
-    }
-    payload = {"body": comment_body}
-    
-    response = requests.post(url, json=payload, headers=headers)
-    if response.status_code == 201:
-        print("✅ Successfully posted analysis report to Pull Request comments!")
-    else:
-        print(f"❌ Failed to post comment. Status code: {response.status_code}, Response: {response.text}")
+    # 2. Execute Git commands via Subprocess
+    try:
+        # Set temporary Git bot profile
+        subprocess.run(["git", "config", "user.name", "citadel-ai-bot"], check=True)
+        subprocess.run(["git", "config", "user.email", "ai-bot@citadel.com"], check=True)
+        
+        # Create a unique branch name based on timestamp
+        branch_name = f"ai-automated-fix-{int(time.time())}"
+        subprocess.run(["git", "checkout", "-b", branch_name], check=True)
+        
+        # Commit the changes
+        subprocess.run(["git", "add", file_path], check=True)
+        commit_msg = f"🤖 AI Automated Fix for {file_path}\n\nReason: {root_cause_desc}"
+        subprocess.run(["git", "commit", "-m", commit_msg], check=True)
+        
+        # Push the branch to GitHub using the authenticated repository origin
+        subprocess.run(["git", "push", "origin", branch_name], check=True)
+        print(f"🚀 Pushed new branch '{branch_name}' to GitHub successfully.")
+        
+        # 3. Create a Pull Request using the GitHub CLI (Pre-installed on GitHub Runners)
+        pr_title = f"🤖 AI Fix: Resolved vulnerability/error in {file_path}"
+        pr_cmd = f'gh pr create --title "{pr_title}" --body "{root_cause_desc}" --base main --head {branch_name}'
+        
+        # We run this command using the environment's GitHub Token
+        os.system(pr_cmd)
+        print("🎉 Automation Complete: Pull Request created successfully!")
+        
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Git automation engine failed: {e}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
@@ -66,22 +113,17 @@ if __name__ == "__main__":
     with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
         full_log = f.read()
         
-    # Take only the last 150 lines (where errors usually are) to avoid overloading the context
     log_lines = full_log.splitlines()
     truncated_log = "\n".join(log_lines[-150:])
     
-    # Run the analysis
-    ai_report = analyze_error_with_ai(failed_tool, truncated_log)
-    
-    # Construct a formatted Markdown message
-    final_message = f"### 🤖 CI/CD Autonomous Agent Report\n" \
-                    f"⚠️ **Pipeline failed at step:** `{failed_tool}`\n\n" \
-                    f"{ai_report}\n\n" \
-                    f"--- \n*Generated automatically by Citadel Autonomous DevOps Agent.*"
-    
-    # Save the report locally as an artifact
-    with open("ai_agent_report.md", "w", encoding="utf-8") as out:
-        out.write(final_message)
+    # Step A: Run analysis and fetch structured data
+    try:
+        fix_result = analyze_and_get_fix(failed_tool, truncated_log)
+        print("💡 AI Analysis Complete. Root Cause detected:", fix_result["root_cause"])
         
-    # Automatically send to GitHub PR (if applicable)
-    post_comment_to_pr(final_message)
+        # Step B: Automatically fix, commit, push, and open PR
+        apply_fix_and_push(fix_result)
+        
+    except Exception as error:
+        print(f"❌ Script failed during processing: {error}")
+        sys.exit(1)

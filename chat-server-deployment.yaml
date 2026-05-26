@@ -5,7 +5,7 @@ metadata:
   labels:
     app: chat-server
 spec:
-  replicas: 2 # We want 2 instances of our chat server for high availability
+  replicas: 2 #we want 2 instances of our chat server for high availability
   selector:
     matchLabels:
       app: chat-server
@@ -14,32 +14,16 @@ spec:
       labels:
         app: chat-server
     spec:
-      # Fix 1: Define Pod-level security to enforce running as a non-root user
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 10001 # A standard non-root UID
-        runAsGroup: 10001
-        fsGroup: 10001
-
       containers:
         - name: chat-server-container
-          image: my-chat-server:latest # Image name built locally in the previous step
-          imagePullPolicy: Never # Forces Minikube to use the local image instead of pulling from Docker Hub
-          
-          # Fix 2: Define Container-level security to prevent privilege escalation
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: false # Set to true if your Java app doesn't write to local disk
-            capabilities:
-              drop:
-                - ALL # Drop all Linux capabilities that aren't explicitly needed
-
+          image: my-chat-server:latest # image name that we built locally in the previous step
+          imagePullPolicy: Never # tells Minikube to use the image from your local machine instead of pulling from the internet
           ports:
-            - containerPort: 9999 # Main communication port for the chat
-            - containerPort: 8080 # Metrics endpoint port for Prometheus
+            - containerPort: 9999 # communication port for the chat
+            - containerPort: 8080 # metrics port for Prometheus
           env:
             - name: DB_HOST
-              value: "mongodb-service" # MongoDB service name for internal cluster communication
+              value: "mongodb-service" # in the next step we will create a service for MongoDB with this name and they will communicate over the internal network
             - name: SSL_KEYSTORE_PATH
               value: "/app/security/keystore.p12"
             - name: SSL_KEYSTORE_PASSWORD
@@ -50,25 +34,16 @@ spec:
           volumeMounts:
             - name: ssl-keystore-volume
               mountPath: /app/security
-              readOnly: true # Mounted as read-only since the app only reads the keystore
-
+              readOnly: true # we only need to read the keystore files, no need to write
+            
         - name: socat-proxy
           image: alpine/socat:latest
-          
-          # Fix 2 (Continued): Apply same security restrictions to the sidecar proxy container
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop:
-                - ALL
-
-          # Command configuration: listens on 0.0.0.0:8888 and forwards traffic to 127.0.0.1:9999
+          # the command says: listen on 0.0.0.0 port 8888 and forward to 127.0.0.1 port 9999
           args: ["tcp-listen:8888,fork,reuseaddr", "tcp-connect:127.0.0.1:9999"]
           ports:
           - containerPort: 8888
-
       volumes:
       - name: ssl-keystore-volume
         secret:
           secretName: chat-ssl-secret
-          defaultMode: 420 # File permissions (octal 0644) making it readable by the container user
+          defaultMode: 420 # permissions for the mounted files (readable by the container)
