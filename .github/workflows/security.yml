@@ -45,18 +45,31 @@ jobs:
           
           if [ -f semgrep_output.log ]; then
             python -c "
-          import os
+          import os, time
           from google import genai
+          
           try:
               with open('semgrep_output.log', 'r', encoding='utf-8', errors='ignore') as f:
                   full_log = f.read()
               truncated_log = '\n'.join(full_log.splitlines()[-150:])
+              
               client = genai.Client(api_key=os.environ.get('GEMINI_API_KEY'))
-              prompt = f'You are an autonomous Senior DevSecOps Expert Agent. A pipeline step failed for Semgrep SAST Scan. Analyze this log and provide a Root Cause and Exact Fix:\n\n{truncated_log}'
-              response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-              final_report = f'### 🤖 CI/CD Autonomous Agent Report\n⚠️ **Pipeline failed at step:** `Semgrep SAST Scan`\n\n' + response.text + '\n\n--- \n*Generated automatically by Citadel Autonomous DevOps Agent.*'
+              
+              # Using a clean raw string format to prevent any shell evaluation conflicts
+              prompt = 'You are an autonomous Senior DevSecOps Expert Agent. A pipeline step failed for Semgrep SAST Scan. Analyze this log output and provide a clear Root Cause explanation along with the Exact Code Fix:\n\n' + truncated_log
+              
+              # Appending a mini sleep loop if a transient overload hits
+              for attempt in range(3):
+                  try:
+                      response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+                      break
+                  except Exception as api_err:
+                      if attempt == 2: raise api_err
+                      time.sleep(5)
+                      
+              final_report = '### 🤖 CI/CD Autonomous Agent Report\n⚠️ **Pipeline failed at step:** `Semgrep SAST Scan`\n\n' + response.text + '\n\n--- \n*Generated automatically by Citadel Autonomous DevOps Agent.*'
           except Exception as e:
-              final_report = f'### 🤖 CI/CD Autonomous Agent Report\n⚠️ AI Agent failed to fetch remote recommendations due to API limits or a 503 Service Overload.\nInternal Trace: {str(e)}'
+              final_report = '### 🤖 CI/CD Autonomous Agent Report\n⚠️ AI Agent failed to reach the Gemini API.\nTrace: ' + str(e)
           
           with open('ai_agent_report.md', 'w', encoding='utf-8') as out:
               out.write(final_report)
@@ -102,18 +115,28 @@ jobs:
           pip install google-genai requests
           if [ -f trivy_output.log ]; then
             python -c "
-          import os
+          import os, time
           from google import genai
+          
           try:
               with open('trivy_output.log', 'r', encoding='utf-8', errors='ignore') as f:
                   full_log = f.read()
               truncated_log = '\n'.join(full_log.splitlines()[-150:])
+              
               client = genai.Client(api_key=os.environ.get('GEMINI_API_KEY'))
-              prompt = f'You are an autonomous Senior DevSecOps Expert Agent. A pipeline step failed for Trivy Container Scanner. Analyze this log and provide a Root Cause and Exact Fix:\n\n{truncated_log}'
-              response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
-              final_report = f'### 🤖 CI/CD Autonomous Agent Report\n⚠️ **Pipeline failed at step:** `Trivy Container Scanner`\n\n' + response.text + '\n\n--- \n*Generated automatically by Citadel Autonomous DevOps Agent.*'
+              prompt = 'You are an autonomous Senior DevSecOps Expert Agent. A pipeline step failed for Trivy Container Scanner. Analyze this log output and provide a clear Root Cause explanation along with the Exact Code Fix:\n\n' + truncated_log
+              
+              for attempt in range(3):
+                  try:
+                      response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
+                      break
+                  except Exception as api_err:
+                      if attempt == 2: raise api_err
+                      time.sleep(5)
+                      
+              final_report = '### 🤖 CI/CD Autonomous Agent Report\n⚠️ **Pipeline failed at step:** `Trivy Container Scanner`\n\n' + response.text + '\n\n--- \n*Generated automatically by Citadel Autonomous DevOps Agent.*'
           except Exception as e:
-              final_report = f'### 🤖 CI/CD Autonomous Agent Report\n⚠️ AI Agent failed to fetch remote recommendations due to API limits or a 503 Service Overload.\nInternal Trace: {str(e)}'
+              final_report = '### 🤖 CI/CD Autonomous Agent Report\n⚠️ AI Agent failed to reach the Gemini API.\nTrace: ' + str(e)
           
           with open('ai_agent_report.md', 'w', encoding='utf-8') as out:
               out.write(final_report)
