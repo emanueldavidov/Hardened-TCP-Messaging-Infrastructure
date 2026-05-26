@@ -5,7 +5,7 @@ metadata:
   labels:
     app: chat-server
 spec:
-  replicas: 2 #we want 2 instances of our chat server for high availability
+  replicas: 1
   selector:
     matchLabels:
       app: chat-server
@@ -14,36 +14,17 @@ spec:
       labels:
         app: chat-server
     spec:
+      securityContext:
+        runAsNonRoot: true
       containers:
-        - name: chat-server-container
-          image: my-chat-server:latest # image name that we built locally in the previous step
-          imagePullPolicy: Never # tells Minikube to use the image from your local machine instead of pulling from the internet
-          ports:
-            - containerPort: 9999 # communication port for the chat
-            - containerPort: 8080 # metrics port for Prometheus
-          env:
-            - name: DB_HOST
-              value: "mongodb-service" # in the next step we will create a service for MongoDB with this name and they will communicate over the internal network
-            - name: SSL_KEYSTORE_PATH
-              value: "/app/security/keystore.p12"
-            - name: SSL_KEYSTORE_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: chat-ssl-secret
-                  key: keystore-password
-          volumeMounts:
-            - name: ssl-keystore-volume
-              mountPath: /app/security
-              readOnly: true # we only need to read the keystore files, no need to write
-            
-        - name: socat-proxy
-          image: alpine/socat:latest
-          # the command says: listen on 0.0.0.0 port 8888 and forward to 127.0.0.1 port 9999
-          args: ["tcp-listen:8888,fork,reuseaddr", "tcp-connect:127.0.0.1:9999"]
-          ports:
-          - containerPort: 8888
-      volumes:
-      - name: ssl-keystore-volume
-        secret:
-          secretName: chat-ssl-secret
-          defaultMode: 420 # permissions for the mounted files (readable by the container)
+      - name: chat-server-container
+        image: your-chat-server-image:latest
+        ports:
+        - containerPort: 5000
+        securityContext:
+          allowPrivilegeEscalation: false
+      - name: socat-proxy
+        image: alpine/socat
+        command: ["sh", "-c", "socat TCP-LISTEN:8080,fork TCP:localhost:5000"]
+        securityContext:
+          allowPrivilegeEscalation: false
