@@ -31,7 +31,8 @@ jobs:
         run: |
           set -o pipefail
           pip install semgrep
-          semgrep scan --config auto --error > semgrep_output.log 2>&1
+          # Using 'tee' ensures logs print to the screen AND save to the file simultaneously
+          semgrep scan --config auto --error 2>&1 | tee semgrep_output.log
 
       # AI Agent trigger specifically for Semgrep SAST failures
       - name: AI Agent - Analyze Semgrep Failure
@@ -54,11 +55,8 @@ jobs:
               truncated_log = '\n'.join(full_log.splitlines()[-150:])
               
               client = genai.Client(api_key=os.environ.get('GEMINI_API_KEY'))
-              
-              # Using a clean raw string format to prevent any shell evaluation conflicts
               prompt = 'You are an autonomous Senior DevSecOps Expert Agent. A pipeline step failed for Semgrep SAST Scan. Analyze this log output and provide a clear Root Cause explanation along with the Exact Code Fix:\n\n' + truncated_log
               
-              # Appending a mini sleep loop if a transient overload hits
               for attempt in range(3):
                   try:
                       response = client.models.generate_content(model='gemini-2.5-flash', contents=prompt)
