@@ -1,21 +1,43 @@
 services:
-  server:
+  # 1. Java Core Engine
+  chat-server:
     build: .
     ports:
-      - "9999:9999" # Chat communication port
-      - "8080:8080" # Prometheus metrics endpoint
-    depends_on:
-      mongo:
-        condition: service_healthy # Waits for MongoDB to be healthy before starting the server
+      - "9999:9999"
+      - "8080:8080"
+    environment:
+      - DB_HOST=mongo
+      - DISABLE_SSL=true
     networks:
       - chat-net
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  # 2. Node.js API Gateway (מתוקן)
+  node-api-gateway:
+    build: ./server
+    ports:
+      - "5000:5000"
     environment:
-      - DB_HOST=mongo # Points to the mongo service name
-      - SSL_KEYSTORE_PATH=/app/security/keystore.p12
-      - SSL_KEYSTORE_PASSWORD=${MY_SSL_PASSWORD} # Use environment variables for sensitive data
-    volumes:
-      - ./logs:/app/logs
-      - ./keystore.p12:/app/security/keystore.p12 # Mount the security directory containing keystore and truststore files
+      - PORT=5000
+      - MONGO_URI=mongodb://mongo:27017/chatDB
+      - BASE_URL=http://localhost:3000
+    depends_on:
+      - mongo
+    networks:
+      - chat-net
+
+  react-frontend:
+    build: 
+      context: ./clients
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    networks:
+      - chat-net
+    depends_on:
+      - node-api-gateway
 
   mongo:
     image: mongo:4.4
@@ -26,70 +48,14 @@ services:
     ports:
       - "27017:27017"
     healthcheck:
-      # Command to verify MongoDB is ready to accept connections
       test: ["CMD", "mongo", "--eval", "db.adminCommand('ping')"]
-      # Time between health checks
-      interval: 10s
-      # Maximum time allowed for one check to complete
+      interval: 5s
       timeout: 2s
-      # Number of consecutive failures before the container is considered unhealthy
-      retries: 5
-      # Grace period to allow the database to initialize before starting checks
-      start_period: 2s
-
-  mongo-express:
-    image: mongo-express
-    ports:
-      - "8081:8081" # Web UI for MongoDB
-    environment:
-      - ME_CONFIG_MONGODB_SERVER=mongo
-    depends_on:
-      - mongo
-    networks:
-      - chat-net
-
-  # Interactive Client Service
-  client:
-    build:
-      context: .
-      dockerfile: Dockerfile.client
-    stdin_open: true # Allows interaction with the container (standard input stays open)
-    tty: true        # Allocates a pseudo-TTY (simulates a real terminal)
-    depends_on:
-      - server
-    networks:
-      - chat-net
-    environment:
-      - SERVER_HOST=server # Points to the server service name
-      - SSL_TRUSTSTORE_PATH=/app/security/truststore.p12
-      - SSL_TRUSTSTORE_PASSWORD=${MY_SSL_PASSWORD} # Use environment variables for sensitive data
-    volumes:
-      - ./keystore.p12:/app/security/truststore.p12 # Mount the security directory containing keystore and truststore files
-      
-  prometheus:
-    image: prom/prometheus:latest
-    user: "root" # Run as root to ensure permissions for volume mounts
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml # 1. Bind Mount for the configuration file (allows for easy editing from the host)
-      - prometheus_data:/prometheus # 2. Named Volume for persistent data (keeps the Git repo clean and improves performance)
-    ports:
-      - "9090:9090"
-    networks:
-      - chat-net
-
-  grafana:
-    image: grafana/grafana:latest
-    ports:
-      - "3000:3000"
-    depends_on:
-      - prometheus  
-    networks:
-      - chat-net
+      retries: 3
 
 networks:
   chat-net:
     driver: bridge
 
 volumes:
-  chat-data: # Persistent storage for MongoDB
-  prometheus_data: # Persistent storage for Prometheus
+  chat-data:
